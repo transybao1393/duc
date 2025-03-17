@@ -16,7 +16,36 @@ fi
 echo "✅ Architecture detected: $ARCH, target: $RUST_TARGET"
 
 # -----------------------------
-# 2. Build Rust program for target architecture
+# 2. Check if cargo is installed, if not install Rust
+# -----------------------------
+echo "➡️  Checking for Rust and Cargo..."
+
+if ! command -v cargo &> /dev/null; then
+    echo "⚠️  Cargo not found. Installing Rust using official installer..."
+
+    # Detect if running as root or normal user for proper rustup installation
+    if [ "$EUID" -eq 0 ]; then
+        echo "⚠️  Rustup cannot be installed as root. Please run this script as a normal user (without sudo)."
+        exit 1
+    fi
+
+    curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y
+
+    # Add cargo to PATH in current shell session
+    source "$HOME/.cargo/env"
+
+    # Check again to confirm
+    if ! command -v cargo &> /dev/null; then
+        echo "❌ Failed to install Rust/Cargo."
+        exit 1
+    fi
+    echo "✅ Rust and Cargo installed successfully."
+else
+    echo "✅ Cargo is already installed."
+fi
+
+# -----------------------------
+# 3. Build Rust program for target architecture
 # -----------------------------
 echo "➡️  Building Rust program for $RUST_TARGET..."
 if ! cargo build --release --target "$RUST_TARGET"; then
@@ -26,7 +55,7 @@ fi
 echo "✅ Rust program built successfully."
 
 # -----------------------------
-# 3. Check and set up .env configuration file interactively
+# 4. Check and set up .env configuration file interactively
 # -----------------------------
 echo "➡️  Checking and setting up /etc/cloudflare-ddns/.env..."
 sudo mkdir -p /etc/cloudflare-ddns && echo "✅ Directory ensured: /etc/cloudflare-ddns."
@@ -42,7 +71,7 @@ if [ ! -f /etc/cloudflare-ddns/.env ]; then
 fi
 
 # -----------------------------
-# Validate required keys in .env
+# 5. Validate required keys in .env
 # -----------------------------
 REQUIRED_KEYS=("CF_API_TOKEN" "CF_ZONE_ID" "CF_RECORD_IDS" "CF_RECORD_NAMES" "CF_RECORD_TYPES" "CF_RECORD_PROXIED")
 
@@ -68,7 +97,7 @@ else
 fi
 
 # -----------------------------
-# 4. Copy binary and .env to /etc/cloudflare-ddns/
+# 6. Copy binary and .env to /etc/cloudflare-ddns/
 # -----------------------------
 echo "➡️  Copying binary and .env file..."
 sudo cp "target/$RUST_TARGET/release/cloudflare-ddns" /etc/cloudflare-ddns/cloudflare-ddns
@@ -76,7 +105,7 @@ sudo chmod +x /etc/cloudflare-ddns/cloudflare-ddns
 echo "✅ Files copied successfully."
 
 # -----------------------------
-# 5. Setup systemd service for weekly run
+# 7. Setup systemd service for weekly run
 # -----------------------------
 echo "➡️  Setting up systemd service and timer..."
 SERVICE_PATH="/etc/systemd/system/cloudflare-ddns.service"
@@ -110,14 +139,14 @@ EOL
 echo "✅ systemd service and timer files created."
 
 # -----------------------------
-# 6. Reload systemd, enable, and start timer
+# 8. Reload systemd, enable, and start timer
 # -----------------------------
 echo "➡️  Enabling and starting systemd timer..."
 sudo systemctl daemon-reload
 sudo systemctl enable --now cloudflare-ddns.timer
 
 # -----------------------------
-# 7. Verify setup
+# 9. Verify setup
 # -----------------------------
 echo "✅ Setup complete! Here is the status of your timer:"
 sudo systemctl status cloudflare-ddns.timer
