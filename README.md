@@ -14,7 +14,7 @@ Just provide a `.env` configuration file and get started. **Cloudflare supported
 ## ✨ Features
 
 - Automatically update public IP address to Cloudflare DNS records
-- Supports multiple DNS record types: A, AAAA, CNAME, CAA, CERT, etc.
+- Supports multiple DNS record types: A, AAAA, CNAME, CAA, CERT, etc. (- **Currently supports multiple A and CNAME records**)
 - Minimal, fast, and written in Rust
 - Easy to set up via `.env` file
 - Suitable for home servers, self-hosted services, and dynamic IP environments
