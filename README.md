@@ -5,7 +5,8 @@
 ![Issues](https://img.shields.io/github/issues/transybao1393/duc)
 ![Last Commit](https://img.shields.io/github/last-commit/transybao1393/duc)
 
-A simple and fast DUC service to update domain's records (including A, AAAA, CNAME, etc), written in Rust
+A simple and fast DUC service to update domain's records (including A, AAAA, CNAME, etc), written in Rust.
+Providing suitable .env configuration to get started.
 
 ---
 
