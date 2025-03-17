@@ -4,8 +4,8 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load environment variables from .env file
-    dotenv::dotenv().ok();
+    // Load environment variables from a fixed path to .env file
+    dotenv::from_path("/etc/cloudflare-ddns/.env").expect("Failed to load .env file from specified path");
 
     let api_token = env::var("CF_API_TOKEN")?;
     let zone_id = env::var("CF_ZONE_ID")?;
