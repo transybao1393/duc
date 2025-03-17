@@ -6,8 +6,8 @@
 ![Last Commit](https://img.shields.io/github/last-commit/transybao1393/duc)
 
 A simple and fast DUC service to update domain's records (including A, AAAA, CNAME, etc), written in Rust.
-Providing suitable .env configuration to get started.
-
+Provide suitable .env configuration to get started.
+CloudFlare supported!
 ---
 
 ## ✨ Features
@@ -25,7 +25,12 @@ Providing suitable .env configuration to get started.
 - [Rust & Cargo](https://www.rust-lang.org/tools/install) must be installed.
 
 ### Install with Cargo (Recommended)
+1.  
+```bash
+cp .env.sample .env
+```
 
+2. Install
 ```bash
 cargo install --git https://github.com/transybao1393/duc
 ```
