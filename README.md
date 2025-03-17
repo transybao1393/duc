@@ -25,7 +25,7 @@ CloudFlare supported!
 - [Rust & Cargo](https://www.rust-lang.org/tools/install) must be installed.
 
 ### Install with Cargo (Recommended)
-1.  
+1.  Create .env file from .env.sample
 ```bash
 cp .env.sample .env
 ```
