@@ -1,107 +1,119 @@
+use std::env;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
-use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
     dotenv::dotenv().ok();
 
-    let zone_id = env::var("CF_ZONE_ID")?;
     let api_token = env::var("CF_API_TOKEN")?;
+    let zone_id = env::var("CF_ZONE_ID")?;
 
-    let record_ids: Vec<String> = env::var("CF_RECORD_IDS")?.split(',').map(|s| s.trim().to_string()).collect();
-    let record_names: Vec<String> = env::var("CF_RECORD_NAMES")?.split(',').map(|s| s.trim().to_string()).collect();
-    let record_types: Vec<String> = env::var("CF_RECORD_TYPES")?.split(',').map(|s| s.trim().to_uppercase()).collect();
-    let record_proxied: Vec<String> = env::var("CF_RECORD_PROXIED")?.split(',').map(|s| s.trim().to_string()).collect();
-    let cname_targets: Vec<String> = env::var("CF_CNAME_TARGETS").unwrap_or_default().split(',').map(|s| s.trim().to_string()).collect();
+    // Split and parse environment variables properly
+    let record_ids_str = env::var("CF_RECORD_IDS")?;
+    let record_names_str = env::var("CF_RECORD_NAMES")?;
+    let record_types_str = env::var("CF_RECORD_TYPES")?;
+    let record_proxied_str = env::var("CF_RECORD_PROXIED")?;
+    let cname_targets_str = env::var("CF_CNAME_TARGETS").unwrap_or_default();
 
-    // Validate record lengths
+    let record_ids: Vec<&str> = record_ids_str.split(',').map(|s| s.trim()).collect();
+    let record_names: Vec<&str> = record_names_str.split(',').map(|s| s.trim()).collect();
+    let record_types: Vec<&str> = record_types_str.split(',').map(|s| s.trim()).collect();
+    let record_proxied: Vec<&str> = record_proxied_str.split(',').map(|s| s.trim()).collect();
+    let cname_targets: Vec<&str> = cname_targets_str.split(',').map(|s| s.trim()).collect();
+
+    // Validate lengths of records
     if record_ids.len() != record_names.len() || record_names.len() != record_types.len() || record_types.len() != record_proxied.len() {
-        eprintln!("\n❌ Error: CF_RECORD_* environment variables must have the same number of comma-separated values.\n");
+        eprintln!("Error: Mismatched number of record IDs, names, types, or proxied flags.");
         std::process::exit(1);
     }
 
-    // Get public IP addresses
-    let ipv4 = reqwest::blocking::get("https://api.ipify.org")?.text()?;
-    let ipv6 = reqwest::blocking::get("https://api6.ipify.org")?.text().unwrap_or_else(|_| "".to_string());
+    // Fetch public IPv4
+    let ipv4 = reqwest::blocking::get("https://api.ipify.org")
+        .and_then(|r| r.text())
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to fetch IPv4 address: {}", e);
+            "".to_string()
+        });
 
-    // Setup HTTP client with headers
+    // Fetch public IPv6
+    let ipv6 = reqwest::blocking::get("https://api6.ipify.org")
+        .and_then(|r| r.text())
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to fetch IPv6 address: {}", e);
+            "".to_string()
+        });
+
+    // Ensure at least one IP address is available
+    if ipv4.is_empty() && ipv6.is_empty() {
+        eprintln!("Error: Could not retrieve either IPv4 or IPv6 address. Exiting.");
+        std::process::exit(1);
+    }
+
+    println!("Public IPv4: {}", if ipv4.is_empty() { "None" } else { &ipv4 });
+    println!("Public IPv6: {}", if ipv6.is_empty() { "None" } else { &ipv6 });
+
+    // Setup headers for API request
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", api_token))?);
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    let client = Client::builder().default_headers(headers).build()?;
 
-    for i in 0..record_ids.len() {
-        let record_id = &record_ids[i];
-        let record_name = &record_names[i];
-        let record_type = &record_types[i];
-        let proxied_flag = &record_proxied[i];
+    let client = Client::new();
 
-        let proxied = match proxied_flag.to_lowercase().as_str() {
-            "true" => true,
-            "false" => false,
-            _ => {
-                eprintln!(
-                    "\n⚠️  Invalid value for PROXIED flag '{}'. Use 'true' or 'false'. Skipping '{}'.\n",
-                    proxied_flag, record_name
-                );
+    // Iterate through records and update them
+    for (i, record_id) in record_ids.iter().enumerate() {
+        let name = record_names[i];
+        let record_type = record_types[i];
+        let proxied = record_proxied[i].parse::<bool>().unwrap_or(false);
+
+        let content = if record_type == "A" {
+            if ipv4.is_empty() {
+                eprintln!("Warning: Skipping A record {} due to missing IPv4 address", name);
                 continue;
             }
-        };
-
-        // Select content based on record type
-        let content = match record_type.as_str() {
-            "A" if !ipv4.is_empty() => ipv4.clone(),
-            "AAAA" if !ipv6.is_empty() => ipv6.clone(),
-            "CNAME" => {
-                if i < cname_targets.len() {
-                    cname_targets[i].clone()
-                } else {
-                    eprintln!("\n⚠️  Missing CNAME target for '{}'. Skipping.\n", record_name);
-                    continue;
-                }
-            }
-            _ => {
-                eprintln!(
-                    "\n⚠️  Unsupported record type '{}' or IP not available for '{}'. Skipping.\n",
-                    record_type, record_name
-                );
+            ipv4.clone()
+        } else if record_type == "AAAA" {
+            if ipv6.is_empty() {
+                eprintln!("Warning: Skipping AAAA record {} due to missing IPv6 address", name);
                 continue;
             }
+            ipv6.clone()
+        } else if record_type == "CNAME" {
+            if i >= cname_targets.len() || cname_targets[i].is_empty() {
+                eprintln!("Warning: Skipping CNAME record {} due to missing target", name);
+                continue;
+            }
+            cname_targets[i].to_string()
+        } else {
+            eprintln!("Warning: Unsupported record type {} for record {}", record_type, name);
+            continue;
         };
 
-        println!(
-            "\n🔄 Updating record: '{}' (ID: {})\n   ➤ Type: {}\n   ➤ Proxied: {}\n   ➤ Content: {}\n",
-            record_name, record_id, record_type, proxied, content
-        );
+        let url = format!("https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}", zone_id, record_id);
 
-        // Prepare the payload
         let body = json!({
             "type": record_type,
-            "name": record_name,
+            "name": name,
             "content": content,
-            "ttl": 1,
             "proxied": proxied
         });
 
-        // Send PATCH request to update record
-        let res = client
-            .patch(&format!(
-                "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
-                zone_id, record_id
-            ))
-            .json(&body)
-            .send()?;
+        println!("Updating record {} ({}): {}", name, record_type, content);
 
-        if res.status().is_success() {
-            println!("✅ Successfully updated '{}'.\n", record_name);
-        } else {
-            eprintln!(
-                "❌ Failed to update '{}'. Status: {}, Response: {:?}\n",
-                record_name,
-                res.status(),
-                res.text().unwrap_or_else(|_| "No response body".to_string())
-            );
+        let res = client.put(&url).headers(headers.clone()).json(&body).send();
+
+        match res {
+            Ok(response) => {
+                if response.status().is_success() {
+                    println!("Successfully updated record: {}", name);
+                } else {
+                    eprintln!("Failed to update record: {}. Response: {:?}", name, response.text().unwrap_or_default());
+                }
+            }
+            Err(e) => {
+                eprintln!("Error updating record {}: {}", name, e);
+            }
         }
     }
 
