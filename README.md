@@ -5,17 +5,19 @@
 ![Issues](https://img.shields.io/github/issues/transybao1393/duc)
 ![Last Commit](https://img.shields.io/github/last-commit/transybao1393/duc)
 
-A simple and fast DUC service to update domain's records (including A, AAAA, CNAME, etc), written in Rust.
-Provide suitable .env configuration to get started.
-CloudFlare supported!
+A simple and fast **Dynamic DNS (DUC)** service written in Rust.  
+Easily update your public IP address to **Cloudflare DNS records** (supports **A, AAAA, CNAME, CAA, CERT**, and more).  
+Just provide a `.env` configuration file and get started. **Cloudflare supported out of the box!**
+
 ---
 
 ## ✨ Features
 
-- Fast and minimal disk usage analyzer
-- Recursively calculates total size of files and directories
-- Human-readable output
-- Easy to use via command line
+- Automatically update public IP address to Cloudflare DNS records
+- Supports multiple DNS record types: A, AAAA, CNAME, CAA, CERT, etc.
+- Minimal, fast, and written in Rust
+- Easy to set up via `.env` file
+- Suitable for home servers, self-hosted services, and dynamic IP environments
 
 ---
 
@@ -23,6 +25,20 @@ CloudFlare supported!
 
 ### Prerequisites
 - [Rust & Cargo](https://www.rust-lang.org/tools/install) must be installed.
+- A **Cloudflare account** with API token (for updating DNS records).
+
+---
+
+### ⚙️ Setup & Install
+
+#### 1. Clone the repo (or download)
+
+```bash
+git clone https://github.com/transybao1393/duc.git
+cd duc
+cargo install --git https://github.com/transybao1393/duc
+```
+
 
 ### Install with Cargo (Recommended)
 1.  Create .env file from .env.sample
