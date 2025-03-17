@@ -27,7 +27,7 @@ A simple and fast CLI tool for disk usage checking (similar to `du`), written in
 
 ```bash
 cargo install --git https://github.com/transybao1393/duc
-
+```
 
 ### Screeshots
-![Sample successfull output]("./sample1.png")
+![Sample successfull output](sample1.png)
