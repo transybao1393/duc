@@ -1,108 +1,109 @@
-use dotenv::dotenv;
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use serde_json::json;
 use std::env;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
-struct IpResponse {
-    ip: String,
-}
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv::dotenv().ok();
 
-#[derive(Serialize)]
-struct DnsRecordUpdate {
-    r#type: String,
-    name: String,
-    content: String,
-    ttl: u32,
-    proxied: bool,
-}
-
-#[derive(Deserialize)]
-struct CloudflareResponse {
-    success: bool,
-    errors: Vec<String>,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv().ok();
-
-    let api_token = env::var("CF_API_TOKEN")?;
     let zone_id = env::var("CF_ZONE_ID")?;
-    let record_ids = env::var("CF_RECORD_IDS")?;
-    let record_names = env::var("CF_RECORD_NAMES")?;
-    let record_proxied = env::var("CF_RECORD_PROXIED")?;
+    let api_token = env::var("CF_API_TOKEN")?;
 
-    let client = Client::new();
+    let record_ids: Vec<String> = env::var("CF_RECORD_IDS")?.split(',').map(|s| s.trim().to_string()).collect();
+    let record_names: Vec<String> = env::var("CF_RECORD_NAMES")?.split(',').map(|s| s.trim().to_string()).collect();
+    let record_types: Vec<String> = env::var("CF_RECORD_TYPES")?.split(',').map(|s| s.trim().to_uppercase()).collect();
+    let record_proxied: Vec<String> = env::var("CF_RECORD_PROXIED")?.split(',').map(|s| s.trim().to_string()).collect();
+    let cname_targets: Vec<String> = env::var("CF_CNAME_TARGETS").unwrap_or_default().split(',').map(|s| s.trim().to_string()).collect();
 
-    // Split comma-separated lists
-    let record_ids: Vec<&str> = record_ids.split(',').map(|s| s.trim()).collect();
-    let record_names: Vec<&str> = record_names.split(',').map(|s| s.trim()).collect();
-    let record_proxied: Vec<&str> = record_proxied.split(',').map(|s| s.trim()).collect();
-
-    // Validation
-    if record_ids.len() != record_names.len() || record_names.len() != record_proxied.len() {
-        eprintln!("\n❌ Mismatch in number of RECORD IDs, NAMES, and PROXIED flags!\n");
-        return Ok(());
+    // Validate record lengths
+    if record_ids.len() != record_names.len() || record_names.len() != record_types.len() || record_types.len() != record_proxied.len() {
+        eprintln!("\n❌ Error: CF_RECORD_* environment variables must have the same number of comma-separated values.\n");
+        std::process::exit(1);
     }
 
-    // Step 1: Fetch current public IP
-    let ip_resp: IpResponse = client
-        .get("https://api.ipify.org?format=json")
-        .send()
-        .await?
-        .json()
-        .await?;
+    // Get public IP addresses
+    let ipv4 = reqwest::blocking::get("https://api.ipify.org")?.text()?;
+    let ipv6 = reqwest::blocking::get("https://api6.ipify.org")?.text().unwrap_or_else(|_| "".to_string());
 
-    let current_ip = ip_resp.ip;
-    println!("\n🌐 Current Public IP: {}\n", current_ip);
+    // Setup HTTP client with headers
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", api_token))?);
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let client = Client::builder().default_headers(headers).build()?;
 
-    // Step 2: Loop and update each DNS record
-    for ((record_id, record_name), proxied_str) in record_ids.iter().zip(record_names.iter()).zip(record_proxied.iter()) {
-        let proxied = match proxied_str.to_lowercase().as_str() {
+    for i in 0..record_ids.len() {
+        let record_id = &record_ids[i];
+        let record_name = &record_names[i];
+        let record_type = &record_types[i];
+        let proxied_flag = &record_proxied[i];
+
+        let proxied = match proxied_flag.to_lowercase().as_str() {
             "true" => true,
             "false" => false,
             _ => {
                 eprintln!(
                     "\n⚠️  Invalid value for PROXIED flag '{}'. Use 'true' or 'false'. Skipping '{}'.\n",
-                    proxied_str, record_name
+                    proxied_flag, record_name
+                );
+                continue;
+            }
+        };
+
+        // Select content based on record type
+        let content = match record_type.as_str() {
+            "A" if !ipv4.is_empty() => ipv4.clone(),
+            "AAAA" if !ipv6.is_empty() => ipv6.clone(),
+            "CNAME" => {
+                if i < cname_targets.len() {
+                    cname_targets[i].clone()
+                } else {
+                    eprintln!("\n⚠️  Missing CNAME target for '{}'. Skipping.\n", record_name);
+                    continue;
+                }
+            }
+            _ => {
+                eprintln!(
+                    "\n⚠️  Unsupported record type '{}' or IP not available for '{}'. Skipping.\n",
+                    record_type, record_name
                 );
                 continue;
             }
         };
 
         println!(
-            "🔄 Updating record: '{}' (ID: {})\n   ➤ Proxied: {}\n   ➤ New IP: {}\n",
-            record_name, record_id, proxied, current_ip
+            "\n🔄 Updating record: '{}' (ID: {})\n   ➤ Type: {}\n   ➤ Proxied: {}\n   ➤ Content: {}\n",
+            record_name, record_id, record_type, proxied, content
         );
 
-        let dns_update = DnsRecordUpdate {
-            r#type: "A".to_string(),
-            name: record_name.to_string(),
-            content: current_ip.clone(),
-            ttl: 120,
-            proxied,
-        };
+        // Prepare the payload
+        let body = json!({
+            "type": record_type,
+            "name": record_name,
+            "content": content,
+            "ttl": 1,
+            "proxied": proxied
+        });
 
-        let res: CloudflareResponse = client
-            .put(format!(
+        // Send PATCH request to update record
+        let res = client
+            .patch(&format!(
                 "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
                 zone_id, record_id
             ))
-            .bearer_auth(&api_token)
-            .json(&dns_update)
-            .send()
-            .await?
-            .json()
-            .await?;
+            .json(&body)
+            .send()?;
 
-        if res.success {
-            println!("✅ Successfully updated '{}'\n", record_name);
+        if res.status().is_success() {
+            println!("✅ Successfully updated '{}'.\n", record_name);
         } else {
-            eprintln!("❌ Failed to update '{}': {:?}\n", record_name, res.errors);
+            eprintln!(
+                "❌ Failed to update '{}'. Status: {}, Response: {:?}\n",
+                record_name,
+                res.status(),
+                res.text().unwrap_or_else(|_| "No response body".to_string())
+            );
         }
     }
 
-    println!("🎉 DNS records update completed!\n");
     Ok(())
 }

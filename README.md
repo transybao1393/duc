@@ -52,4 +52,10 @@ cargo install --git https://github.com/transybao1393/duc
 ```
 
 ### Screeshots
-![Sample successfull output](sample1.png)
+A record update
+
+![Sample successfull output](sample_a.png)
+
+A and CNAME records update
+
+![Sample successfull output](sample_a_cname.png)
